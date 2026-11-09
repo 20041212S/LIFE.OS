@@ -236,3 +236,171 @@ Keep it under 200 words. Be encouraging, concise, and personal."""
         raise HTTPException(status_code=502, detail=f"Groq API error: {str(e)}")
 
     return {"summary": summary, "entries_count": len(rows)}
+
+
+@app.post("/api/v1/ai/goals", dependencies=[Depends(authenticate)])
+def ai_goals(db: Session = Depends(get_db)):
+    rows = db.query(Entry).order_by(Entry.created_at.desc()).limit(100).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No entries to base goals on.")
+
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY is not configured on the server.")
+
+    lines = []
+    for r in rows[:50]:
+        details = (r.details or "").strip().replace("\n", " ")[:120]
+        lines.append(f"- {r.created_at.date()}: [{r.category}] {r.title}" + (f" — {details}" if details else ""))
+
+    entries_text = "\n".join(lines)
+    prompt = f"""You are a personal life coach AI. Based on these tracking entries, suggest 3 specific, achievable goals for the next week. Make them SMART (Specific, Measurable, Achievable, Relevant, Time-bound). Keep each under 25 words. Be encouraging.
+
+Entries:
+{entries_text}
+
+Format as a simple numbered list."""
+
+    import json, urllib.request, urllib.error
+
+    payload = json.dumps({
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
+        "max_tokens": 400,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+            text = result["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:500]
+        raise HTTPException(status_code=502, detail=f"Groq API error ({e.code}): {body}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Groq API error: {str(e)}")
+
+    return {"goals": text, "entries_count": len(rows)}
+
+
+@app.post("/api/v1/ai/plan", dependencies=[Depends(authenticate)])
+def ai_plan(db: Session = Depends(get_db)):
+    rows = db.query(Entry).order_by(Entry.created_at.desc()).limit(100).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No entries to base a plan on.")
+
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY is not configured on the server.")
+
+    lines = []
+    for r in rows[:50]:
+        details = (r.details or "").strip().replace("\n", " ")[:120]
+        lines.append(f"- {r.created_at.date()}: [{r.category}] {r.title}" + (f" — {details}" if details else ""))
+
+    entries_text = "\n".join(lines)
+    prompt = f"""You are a personal life coach AI. Based on these tracking entries, create a simple weekly schedule (Monday–Sunday) with one suggested focus or activity per day. Keep it realistic and balanced. Include rest days. Each day under 20 words.
+
+Entries:
+{entries_text}
+
+Format as a simple numbered list by day of week."""
+
+    import json, urllib.request, urllib.error
+
+    payload = json.dumps({
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
+        "max_tokens": 500,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+            text = result["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:500]
+        raise HTTPException(status_code=502, detail=f"Groq API error ({e.code}): {body}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Groq API error: {str(e)}")
+
+    return {"plan": text, "entries_count": len(rows)}
+
+
+@app.post("/api/v1/ai/ask", dependencies=[Depends(authenticate)])
+def ai_ask(payload: dict, db: Session = Depends(get_db)):
+    question = (payload or {}).get("question", "").strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="question is required.")
+
+    rows = db.query(Entry).order_by(Entry.created_at.desc()).limit(100).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No entries to answer from.")
+
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY is not configured on the server.")
+
+    lines = []
+    for r in rows[:80]:
+        details = (r.details or "").strip().replace("\n", " ")[:150]
+        lines.append(f"- {r.created_at.date()}: [{r.category}] {r.title}" + (f" — {details}" if details else ""))
+
+    entries_text = "\n".join(lines)
+    prompt = f"""You are a personal life coach AI. Answer the user's question using ONLY the tracking entries below. If the answer isn't in the entries, say so honestly. Be concise, encouraging, and personal.
+
+User question: {question}
+
+Entries:
+{entries_text}
+
+Keep answer under 150 words."""
+
+    import json, urllib.request, urllib.error
+
+    payload_json = json.dumps({
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
+        "max_tokens": 400,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=payload_json,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+            answer = result["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:500]
+        raise HTTPException(status_code=502, detail=f"Groq API error ({e.code}): {body}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Groq API error: {str(e)}")
+
+    return {"answer": answer, "entries_count": len(rows)}
