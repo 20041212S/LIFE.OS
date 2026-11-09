@@ -55,6 +55,3 @@ git push -u origin main
 ```
 
 Replace `YOUR_USERNAME` with your GitHub username. Never commit `.env`, API keys, or real personal records.
-# LIFE.OS
-# LIFE.OS
-# LIFE.OS

@@ -23,7 +23,7 @@
     <button data-view="goals"><span class="ico">◎</span>Goals & habits</button>
     <button data-view="projects"><span class="ico">⌘</span>Projects & notes</button>
   </nav></div>
-  <div class="sidefoot"><b>Small steps. Real progress.</b><p>Your personal system works when you use it consistently. Record the work, then review it.</p><div class="tiny-status"><span class="dot"></span> Local demo mode</div></div>
+  <div class="sidefoot"><b>Small steps. Real progress.</b><p>Your personal system works when you use it consistently. Record the work, then review it.</p><div class="tiny-status"><span class="dot"></span> <span id="apiStatus">Local demo mode</span></div><button class="btn-secondary" id="apiConnectBtn" style="width:100%;margin-top:8px">Connect to API</button></div>
 </aside>
 <main class="main">
   <header class="topbar"><div><div class="eyebrow" id="crumb">YOUR PERSONAL SPACE</div><div class="hello" id="greeting">Your life, in focus.</div><div class="sub" id="subtitle">One place to track what matters and see your progress.</div></div><div class="top-actions"><div class="datechip" id="today"></div><div class="avatar">ME</div></div></header>
@@ -74,6 +74,74 @@ const icons={workout:'↗',job_application:'▣',goal:'◎',habit:'◷',project:
 let entries=load();
 let activeView='dashboard';
 const $=id=>document.getElementById(id);
+
+// --- API integration (opt-in; demo/localStorage mode works without it) ---
+let apiBase=null, apiKey=null, apiConnected=false;
+const API_SETTINGS_KEY='lifeos-api-settings-v1';
+
+function loadApiSettings(){
+  try{
+    const s=JSON.parse(localStorage.getItem(API_SETTINGS_KEY)||'null');
+    if(s&&s.base){
+      apiBase=s.base.replace(/\/$/,'');
+      apiKey=s.key||null;
+      apiConnected=true;
+    }
+  }catch(e){}
+}
+function saveApiSettings(){
+  if(apiBase) localStorage.setItem(API_SETTINGS_KEY,JSON.stringify({base:apiBase,key:apiKey||''}));
+  else localStorage.removeItem(API_SETTINGS_KEY);
+}
+async function apiFetch(path,{method='GET',body=null}={}){
+  if(!apiBase) throw new Error('API not configured');
+  const headers={'Content-Type':'application/json'};
+  if(apiKey) headers['X-API-Key']=apiKey;
+  const res=await fetch(apiBase+path,{method,headers,body:body?JSON.stringify(body):null});
+  if(!res.ok){
+    let detail='';
+    try{detail=(await res.json()).detail||''}catch(e){}
+    throw new Error(detail||`API error ${res.status}`);
+  }
+  const ct=res.headers.get('content-type')||'';
+  if(ct.includes('application/json')) return res.json();
+  return res.text();
+}
+async function syncFromApi(){
+  if(!apiConnected) return;
+  try{
+    const rows=await apiFetch('/api/v1/entries?limit=200');
+    entries=(rows||[]).map(r=>({
+      id:String(r.id), category:r.category, title:r.title, details:r.details||'',
+      status:r.status, targetDate:r.target_date||null,
+      createdAt:r.created_at||new Date().toISOString(), updatedAt:r.updated_at||new Date().toISOString()
+    }));
+    localStorage.setItem(KEY,JSON.stringify(entries));
+  }catch(e){
+    // keep local data; API may be offline
+  }
+}
+async function pushEntryToApi(e){
+  if(!apiConnected) return;
+  try{
+    const numericId=Number(e.id);
+    const exists=e.id&&!isNaN(numericId);
+    if(exists){
+      await apiFetch('/api/v1/entries/'+numericId,{method:'PATCH',body:{category:e.category,title:e.title,details:e.details,status:e.status,target_date:e.targetDate||null}});
+    }else{
+      const created=await apiFetch('/api/v1/entries',{method:'POST',body:{category:e.category,title:e.title,details:e.details,status:e.status,target_date:e.targetDate||null}});
+      e.id=String(created.id);
+    }
+  }catch(err){
+    console.warn('API push failed',err.message||err);
+  }
+}
+async function deleteEntryFromApi(id){
+  if(!apiConnected) return;
+  try{ await apiFetch('/api/v1/entries/'+id,{method:'DELETE'}); }catch(err){ console.warn('API delete failed',err.message||err); }
+}
+async function boot(){loadApiSettings();await syncFromApi();render();}
+
 function load(){try{const x=JSON.parse(localStorage.getItem(KEY)||'[]');return Array.isArray(x)?x:[]}catch(e){return []}}
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(entries));$('storageStatus').textContent='Saved in this browser · '+entries.length+' records';return true}catch(e){$('storageStatus').textContent='Browser storage unavailable — export your data to keep it.';return false}}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -107,12 +175,13 @@ const projectCats=['project','skill','journal','note'];const pc=$('projectFilter
 function exportData(){const blob=new Blob([JSON.stringify({app:'LIFE.OS',exportedAt:new Date().toISOString(),entries},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='life-os-backup-'+dayKey(new Date())+'.json';a.click();URL.revokeObjectURL(url);toast('Backup exported')}
 function importData(file){const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(reader.result);const arr=Array.isArray(data)?data:data.entries;if(!Array.isArray(arr))throw new Error('No entries');if(!confirm('Import '+arr.length+' records? This replaces the records in this browser.'))return;entries=arr.map(e=>({...e,id:String(e.id||crypto.randomUUID()),createdAt:e.createdAt||new Date().toISOString()}));render();toast('Import complete')}catch(e){alert('Could not import this JSON file. Check that it is a LIFE.OS export.')}};reader.readAsText(file)}
 $('nav').addEventListener('click',e=>{const b=e.target.closest('button[data-view]');if(b)navigate(b.dataset.view)});
-document.body.addEventListener('click',e=>{const add=e.target.closest('[data-category]');if(add){showModal(add.dataset.category);return}const edit=e.target.closest('[data-edit]');if(edit){showModal('note',edit.dataset.edit);return}const del=e.target.closest('[data-delete]');if(del){const row=entries.find(x=>x.id===del.dataset.delete);if(row&&confirm('Delete “'+row.title+'”? This cannot be undone.')){entries=entries.filter(x=>x.id!==row.id);render();toast('Record deleted')}return}});
+document.body.addEventListener('click',e=>{const add=e.target.closest('[data-category]');if(add){showModal(add.dataset.category);return}const edit=e.target.closest('[data-edit]');if(edit){showModal('note',edit.dataset.edit);return}const del=e.target.closest('[data-delete]');if(del){const row=entries.find(x=>x.id===del.dataset.delete);if(row&&confirm('Delete “'+row.title+'”? This cannot be undone.')){deleteEntryFromApi(row.id);entries=entries.filter(x=>x.id!==row.id);render();toast('Record deleted')}return}});
 $('heroAdd').onclick=()=>showModal('note');$('heroView').onclick=$('recentSee').onclick=()=>navigate('entries');$('addFromList').onclick=()=>showModal('note');$('closeModal').onclick=$('cancelModal').onclick=closeModal;$('modalback').addEventListener('click',e=>{if(e.target===$('modalback'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
-$('entryForm').addEventListener('submit',e=>{e.preventDefault();const id=$('editId').value;const old=entries.find(x=>x.id===id);const item={id:id||((crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())),category:$('category').value,title:$('title').value.trim(),details:$('details').value.trim(),status:$('status').value,targetDate:$('target_date').value||null,createdAt:old?old.createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};if(!item.title)return;if(old)entries=entries.map(x=>x.id===id?item:x);else entries.push(item);closeModal();render();toast(old?'Record updated':'Record saved')});
+$('apiConnectBtn').onclick=()=>{const base=prompt('API base URL (e.g. http://127.0.0.1:8000)');if(!base)return;const key=prompt('API key (PERSONAL_API_KEY)');if(!key)return;apiBase=base.replace(/\/$/,'');apiKey=key;apiConnected=true;saveApiSettings();syncFromApi().then(()=>{render();$('apiStatus').textContent='Connected to API';toast('API connected');});};
+$('entryForm').addEventListener('submit',e=>{e.preventDefault();const id=$('editId').value;const old=entries.find(x=>x.id===id);const item={id:id||((crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())),category:$('category').value,title:$('title').value.trim(),details:$('details').value.trim(),status:$('status').value,targetDate:$('target_date').value||null,createdAt:old?old.createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};if(!item.title)return;if(old)entries=entries.map(x=>x.id===id?item:x);else entries.push(item);pushEntryToApi(item);closeModal();render();toast(old?'Record updated':'Record saved')});
 $('categoryFilter').onchange=$('statusFilter').onchange=$('search').oninput=render;$('projectFilter').onchange=render;$('exportBtn').onclick=exportData;
 $('storageStatus').textContent='Local browser storage · '+entries.length+' records';$('today').textContent=new Date().toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-render();
+boot();
 })();
 </script>
 </body></html>

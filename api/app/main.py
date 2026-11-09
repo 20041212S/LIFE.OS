@@ -3,6 +3,7 @@ from datetime import datetime, date
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, Column, Integer, String, Text, Date, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
@@ -32,6 +33,14 @@ app = FastAPI(
     title="Personal Life API",
     description="A private API for tracking your goals, habits, workouts, career, projects, and journal.",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # personal use: allow any frontend. Restrict to your GitHub Pages URL later if you want.
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 ALLOWED_CATEGORIES = {"goal", "habit", "workout", "job_application", "project", "journal", "skill", "note"}
