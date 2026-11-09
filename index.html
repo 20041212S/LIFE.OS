@@ -176,12 +176,18 @@ async function syncFromApi(){
   if(!apiConnected) return;
   try{
     const rows=await apiFetch('/api/v1/entries?limit=200');
-    entries=(rows||[]).map(r=>({
-      id:String(r.id), category:r.category, title:r.title, details:r.details||'',
-      status:r.status, targetDate:r.target_date||null,
-      createdAt:r.created_at||new Date().toISOString(), updatedAt:r.updated_at||new Date().toISOString()
-    }));
-    localStorage.setItem(KEY,JSON.stringify(entries));
+    const apiEntries=(rows||[]);
+    if(apiEntries.length>0){
+      entries=apiEntries.map(r=>({
+        id:String(r.id), category:r.category, title:r.title, details:r.details||'',
+        status:r.status, targetDate:r.target_date||null,
+        createdAt:r.created_at||new Date().toISOString(), updatedAt:r.updated_at||new Date().toISOString()
+      }));
+      localStorage.setItem(KEY,JSON.stringify(entries));
+    }else if(entries.length>0){
+      // API empty but local has data — seed the backend so refresh doesn't wipe it
+      for(const e of entries){await pushEntryToApi(e);}
+    }
   }catch(e){
     // keep local data; API may be offline
   }
@@ -267,7 +273,7 @@ const projectCats=['project','skill','journal','note'];const pc=$('projectFilter
 }
 function exportData(){const blob=new Blob([JSON.stringify({app:'LIFE.OS',exportedAt:new Date().toISOString(),entries},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='life-os-backup-'+dayKey(new Date())+'.json';a.click();URL.revokeObjectURL(url);toast('Backup exported')}
 function exportCsv(){const rows=entries.map(e=>[e.createdAt,e.category,e.title,e.details,e.status,e.targetDate,e.updatedAt].map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));const csv=['"Created At","Category","Title","Details","Status","Target Date","Updated At"'].concat(rows).join('\n');const blob=new Blob([csv],{type:'text/csv'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='life-os-records-'+dayKey(new Date())+'.csv';a.click();URL.revokeObjectURL(url);toast('CSV exported')}
-function importData(file){const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(reader.result);const arr=Array.isArray(data)?data:data.entries;if(!Array.isArray(arr))throw new Error('No entries');if(!confirm('Import '+arr.length+' records? This replaces the records in this browser.'))return;entries=arr.map(e=>({...e,id:String(e.id||crypto.randomUUID()),createdAt:e.createdAt||new Date().toISOString()}));render();toast('Import complete')}catch(e){alert('Could not import this JSON file. Check that it is a LIFE.OS export.')}};reader.readAsText(file)}
+function importData(file){const reader=new FileReader();reader.onload=async()=>{try{const data=JSON.parse(reader.result);const arr=Array.isArray(data)?data:data.entries;if(!Array.isArray(arr))throw new Error('No entries');if(!confirm('Import '+arr.length+' records? This replaces the records in this browser.'))return;entries=arr.map(e=>({...e,id:String(e.id||crypto.randomUUID()),createdAt:e.createdAt||new Date().toISOString()}));render();if(apiConnected){for(const e of entries){await pushEntryToApi(e);}}toast('Import complete'+(apiConnected?' & synced to API':''))}catch(e){alert('Could not import this JSON file. Check that it is a LIFE.OS export.')}};reader.readAsText(file)}
 $('nav').addEventListener('click',e=>{const b=e.target.closest('button[data-view]');if(b)navigate(b.dataset.view)});
 document.body.addEventListener('click',e=>{const add=e.target.closest('[data-category]');if(add){showModal(add.dataset.category);return}const edit=e.target.closest('[data-edit]');if(edit){showModal('note',edit.dataset.edit);return}const del=e.target.closest('[data-delete]');if(del){const row=entries.find(x=>x.id===del.dataset.delete);if(row&&confirm('Delete “'+row.title+'”? This cannot be undone.')){deleteEntryFromApi(row.id);entries=entries.filter(x=>x.id!==row.id);render();toast('Record deleted')}return}});
 $('heroAdd').onclick=()=>showModal('note');$('heroView').onclick=$('recentSee').onclick=()=>navigate('entries');$('addFromList').onclick=()=>showModal('note');$('closeModal').onclick=$('cancelModal').onclick=closeModal;$('modalback').addEventListener('click',e=>{if(e.target===$('modalback'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
@@ -279,6 +285,8 @@ function aiShow(tab){
   ['summary','goals','plan','ask'].forEach(t=>{$(t==='summary'?'aiSummary':t==='goals'?'aiGoals':t==='plan'?'aiPlan':'aiAsk').style.display=(t===tab)?'block':'none'});
   if(tab==='summary'&&aiLastSummary){$('aiSummary').textContent=aiLastSummary;}
   if(tab==='summary'&&!aiLastSummary&&apiConnected){aiLoadSummary();}
+  if(tab==='goals'&&apiConnected){aiLoadGoals();}
+  if(tab==='plan'&&apiConnected){aiLoadPlan();}
 }
 
 document.body.addEventListener('click',e=>{
