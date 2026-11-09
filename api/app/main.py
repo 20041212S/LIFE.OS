@@ -209,7 +209,7 @@ Keep it under 200 words. Be encouraging, concise, and personal."""
     import json, urllib.request, urllib.error
 
     payload = json.dumps({
-        "model": "llama-3.1-8b-instant",
+        "model": "llama-3.1-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
         "max_tokens": 500,
@@ -264,7 +264,7 @@ Format as a simple numbered list."""
     import json, urllib.request, urllib.error
 
     payload = json.dumps({
-        "model": "llama-3.1-8b-instant",
+        "model": "llama-3.1-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
         "max_tokens": 400,
@@ -319,7 +319,7 @@ Format as a simple numbered list by day of week."""
     import json, urllib.request, urllib.error
 
     payload = json.dumps({
-        "model": "llama-3.1-8b-instant",
+        "model": "llama-3.1-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
         "max_tokens": 500,
@@ -380,7 +380,7 @@ Keep answer under 150 words."""
     import json, urllib.request, urllib.error
 
     payload_json = json.dumps({
-        "model": "llama-3.1-8b-instant",
+        "model": "llama-3.1-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
         "max_tokens": 400,
