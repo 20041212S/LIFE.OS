@@ -10,6 +10,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./personal_life.db")
 API_KEY = os.getenv("PERSONAL_API_KEY", "change-this-before-use")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
@@ -171,11 +172,67 @@ def dashboard(db: Session = Depends(get_db)):
     for row in rows:
         counts[row.category] = counts.get(row.category, 0) + 1
     active_goals = sum(1 for row in rows if row.category == "goal" and row.status == "active")
-    open_applications = sum(1 for row in rows if row.category == "job_application" and row.status in {"active", "applied", "interview"})
     return {
         "total_entries": len(rows),
         "by_category": counts,
         "active_goals": active_goals,
-        "open_job_applications": open_applications,
         "generated_at": datetime.utcnow().isoformat() + "Z"
     }
+
+
+@app.post("/api/v1/ai/summary", dependencies=[Depends(authenticate)])
+def ai_summary(db: Session = Depends(get_db)):
+    rows = db.query(Entry).order_by(Entry.created_at.desc()).limit(100).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No entries to summarize.")
+
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY is not configured on the server.")
+
+    lines = []
+    for r in rows[:50]:
+        details = (r.details or "").strip().replace("\n", " ")[:120]
+        lines.append(f"- {r.created_at.date()}: [{r.category}] {r.title}" + (f" — {details}" if details else ""))
+
+    entries_text = "\n".join(lines)
+    prompt = f"""You are a personal life coach AI. Analyze these life tracking entries and provide:
+1. A brief summary of recent activity
+2. Patterns or trends you notice
+3. One encouraging insight
+4. One small, actionable suggestion for next week
+
+Entries:
+{entries_text}
+
+Keep it under 200 words. Be encouraging, concise, and personal."""
+
+    import json, urllib.request, urllib.error
+
+    payload = json.dumps({
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
+        "max_tokens": 500,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+            summary = result["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:500]
+        raise HTTPException(status_code=502, detail=f"Groq API error ({e.code}): {body}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Groq API error: {str(e)}")
+
+    return {"summary": summary, "entries_count": len(rows)}

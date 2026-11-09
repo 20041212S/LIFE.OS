@@ -41,6 +41,10 @@
       <div class="stat"><div class="stat-top"><span>ALL RECORDS</span><span class="stat-icon">▤</span></div><div class="stat-num" id="statAll">0</div><div class="stat-foot">Your personal history</div></div>
     </div>
     <div class="insight" id="weeklyInsight" style="margin:18px 0;padding:14px;border-radius:12px;background:light-dark(#edf7db,#293a27);color:light-dark(#36521a,#c9f68c);font-size:13px;line-height:1.5"></div>
+    <div class="panel" id="aiPanel" style="margin:18px 0;display:none">
+      <div class="panelhead"><h3>🤖 AI Coach</h3><button class="btn-secondary" id="aiSummarizeBtn" style="float:right;padding:6px 12px;font-size:11px">Generate Summary</button></div>
+      <div id="aiResponse" style="padding:12px;font-size:13px;line-height:1.5;color:light-dark(#172033,#f3f5fa);white-space:pre-wrap"></div>
+    </div>
     <div class="grid2">
       <div><div class="sectionhead"><h3>Activity over time</h3><span>Last 7 days</span></div><div class="panel"><div class="panelhead"><h3>Your consistency</h3><span class="muted" id="chartTotal">No records yet</span></div><div id="chartArea"></div></div></div>
       <div><div class="sectionhead"><h3>Recent activity</h3><span>Latest first</span></div><div class="panel"><div class="panelhead"><h3>Latest records</h3><button class="btn-secondary" id="recentSee">See all</button></div><div class="activity" id="recentActivity"></div></div></div>
@@ -215,6 +219,21 @@ function importData(file){const reader=new FileReader();reader.onload=()=>{try{c
 $('nav').addEventListener('click',e=>{const b=e.target.closest('button[data-view]');if(b)navigate(b.dataset.view)});
 document.body.addEventListener('click',e=>{const add=e.target.closest('[data-category]');if(add){showModal(add.dataset.category);return}const edit=e.target.closest('[data-edit]');if(edit){showModal('note',edit.dataset.edit);return}const del=e.target.closest('[data-delete]');if(del){const row=entries.find(x=>x.id===del.dataset.delete);if(row&&confirm('Delete “'+row.title+'”? This cannot be undone.')){deleteEntryFromApi(row.id);entries=entries.filter(x=>x.id!==row.id);render();toast('Record deleted')}return}});
 $('heroAdd').onclick=()=>showModal('note');$('heroView').onclick=$('recentSee').onclick=()=>navigate('entries');$('addFromList').onclick=()=>showModal('note');$('closeModal').onclick=$('cancelModal').onclick=closeModal;$('modalback').addEventListener('click',e=>{if(e.target===$('modalback'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+$('aiSummarizeBtn').onclick=async()=>{
+  if(!apiConnected){toast('Connect to API first');return}
+  $('aiSummarizeBtn').textContent='Thinking…';
+  $('aiPanel').style.display='block';
+  try{
+    const res=await apiFetch('/api/v1/ai/summary',{method:'POST'});
+    $('aiResponse').textContent=res.summary||'No summary returned.';
+    toast('AI summary ready');
+  }catch(err){
+    $('aiResponse').textContent='AI summary failed: '+(err.message||err);
+    toast('AI summary failed');
+  }finally{
+    $('aiSummarizeBtn').textContent='Generate Summary';
+  }
+};
 $('apiConnectBtn').onclick=()=>{
   const already=apiConnected;
   const base=prompt('API base URL'+(already?' (current: '+apiBase+')':' (e.g. https://life-os-am5b.onrender.com)')+'\nLeave blank to cancel.');
